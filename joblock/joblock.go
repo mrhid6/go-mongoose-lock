@@ -115,10 +115,8 @@ func (t *JobLockTask) UnLock(ctx context.Context) error {
 }
 
 func (t *JobLockTask) updateTimer() {
-	next := time.Now()
-	if !next.After(time.Now()) {
-		next = next.Add(t.Interval)
-	}
+	next := time.Now().Add(t.Interval)
+
 	diff := next.Sub(time.Now())
 	if t.timer == nil {
 		t.timer = time.NewTimer(diff)
