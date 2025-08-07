@@ -77,6 +77,40 @@ func (t *JobLockTask) Run(ctx context.Context) error {
 	return nil
 }
 
+func (t *JobLockTask) RunOnce(ctx context.Context) error {
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if t.Arg == nil {
+		return errors.New("`What this timer should to run?`")
+	}
+
+	go func() {
+		//lock
+		lock, err := t.isNotLockThenLock(ctx)
+		if err != nil {
+			log.Printf("Job %s failed to lock with error: %s\n", t.Name, err.Error())
+		}
+		if lock {
+			if t.Debug {
+				log.Printf("Running job %s \n", t.Name)
+			}
+
+			// run the task
+			t.Arg()
+			if t.Debug {
+				log.Printf("Finished job %s \n", t.Name)
+			}
+
+			t.UnLock(ctx)
+		}
+	}()
+
+	return nil
+}
+
 func (t *JobLockTask) isNotLockThenLock(ctx context.Context) (bool, error) {
 
 	ExistingLock := JobLock{}
