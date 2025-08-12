@@ -3,11 +3,12 @@ module github.com/mrhid6/go-mongoose-lock
 go 1.24
 
 require (
-	github.com/mrhid6/go-mongoose v0.0.12
+	github.com/mrhid6/go-mongoose v0.0.14
 	go.mongodb.org/mongo-driver v1.17.3
 )
 
 require (
+	github.com/gertd/go-pluralize v0.2.1 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect

@@ -18,25 +18,49 @@ type JobLock struct {
 }
 
 type JobLockTask struct {
-	Name     string
-	Arg      func()
-	Interval time.Duration
-	Timeout  time.Duration
-	Debug    bool
+	name     string
+	arg      func()
+	interval time.Duration
+	timeout  time.Duration
+	debug    bool
 
 	timer *time.Timer
+
+	mongoClient *mongoose.MongooseClient
+}
+
+func NewJobLockTask(mongoClient *mongoose.MongooseClient, name string, arg func(), interval time.Duration, timeout time.Duration, debug bool) (*JobLockTask, error) {
+
+	_, err := mongoClient.RegisterModel(&JobLock{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &JobLockTask{
+		name:        name,
+		arg:         arg,
+		interval:    interval,
+		timeout:     timeout,
+		debug:       debug,
+		mongoClient: mongoClient,
+	}, nil
 }
 
 func (t *JobLockTask) Run(ctx context.Context) error {
+
+	if t.mongoClient == nil {
+		return errors.New("mongoClient is nil")
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	if t.Interval == 0 {
+	if t.interval == 0 {
 		return errors.New("`Time Interval is missing!`")
 	}
 
-	if t.Arg == nil {
+	if t.arg == nil {
 		return errors.New("`What this timer should to run?`")
 	}
 
@@ -46,7 +70,7 @@ func (t *JobLockTask) Run(ctx context.Context) error {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Printf("Job %s terminated!", t.Name)
+				log.Printf("Job %s terminated!", t.name)
 			default:
 
 				<-t.timer.C
@@ -54,17 +78,17 @@ func (t *JobLockTask) Run(ctx context.Context) error {
 				//lock
 				lock, err := t.isNotLockThenLock(ctx)
 				if err != nil {
-					log.Printf("Job %s failed to lock with error: %s\n", t.Name, err.Error())
+					log.Printf("Job %s failed to lock with error: %s\n", t.name, err.Error())
 				}
 				if lock {
-					if t.Debug {
-						log.Printf("Running job %s \n", t.Name)
+					if t.debug {
+						log.Printf("Running job %s \n", t.name)
 					}
 
 					// run the task
-					t.Arg()
-					if t.Debug {
-						log.Printf("Finished job %s \n", t.Name)
+					t.arg()
+					if t.debug {
+						log.Printf("Finished job %s \n", t.name)
 					}
 
 					t.UnLock(ctx)
@@ -79,11 +103,15 @@ func (t *JobLockTask) Run(ctx context.Context) error {
 
 func (t *JobLockTask) RunOnce(ctx context.Context) error {
 
+	if t.mongoClient == nil {
+		return errors.New("mongoClient is nil")
+	}
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	if t.Arg == nil {
+	if t.arg == nil {
 		return errors.New("`What this timer should to run?`")
 	}
 
@@ -91,17 +119,17 @@ func (t *JobLockTask) RunOnce(ctx context.Context) error {
 		//lock
 		lock, err := t.isNotLockThenLock(ctx)
 		if err != nil {
-			log.Printf("Job %s failed to lock with error: %s\n", t.Name, err.Error())
+			log.Printf("Job %s failed to lock with error: %s\n", t.name, err.Error())
 		}
 		if lock {
-			if t.Debug {
-				log.Printf("Running job %s \n", t.Name)
+			if t.debug {
+				log.Printf("Running job %s \n", t.name)
 			}
 
 			// run the task
-			t.Arg()
-			if t.Debug {
-				log.Printf("Finished job %s \n", t.Name)
+			t.arg()
+			if t.debug {
+				log.Printf("Finished job %s \n", t.name)
 			}
 
 			t.UnLock(ctx)
@@ -115,7 +143,12 @@ func (t *JobLockTask) isNotLockThenLock(ctx context.Context) (bool, error) {
 
 	ExistingLock := JobLock{}
 
-	mongoose.FindOne(bson.M{"name": t.Name}, &ExistingLock)
+	lockModel, err := t.mongoClient.GetModel("JobLock")
+	if err != nil {
+		return false, err
+	}
+
+	lockModel.FindOne(&ExistingLock, bson.M{"name": t.name})
 
 	if !ExistingLock.ID.IsZero() {
 
@@ -128,11 +161,11 @@ func (t *JobLockTask) isNotLockThenLock(ctx context.Context) (bool, error) {
 
 	NewLock := JobLock{
 		ID:     primitive.NewObjectID(),
-		Name:   t.Name,
-		Expiry: time.Now().Add(t.Timeout),
+		Name:   t.name,
+		Expiry: time.Now().Add(t.timeout),
 	}
 
-	if _, err := mongoose.InsertOne(&NewLock); err != nil {
+	if err := lockModel.Create(&NewLock); err != nil {
 		return false, err
 	}
 
@@ -141,7 +174,12 @@ func (t *JobLockTask) isNotLockThenLock(ctx context.Context) (bool, error) {
 
 func (t *JobLockTask) UnLock(ctx context.Context) error {
 
-	if _, err := mongoose.DeleteOne(bson.M{"name": t.Name}, &JobLock{}); err != nil {
+	lockModel, err := t.mongoClient.GetModel("JobLock")
+	if err != nil {
+		return err
+	}
+
+	if err := lockModel.Delete(bson.M{"name": t.name}); err != nil {
 		return err
 	}
 
@@ -149,7 +187,7 @@ func (t *JobLockTask) UnLock(ctx context.Context) error {
 }
 
 func (t *JobLockTask) updateTimer() {
-	next := time.Now().Add(t.Interval)
+	next := time.Now().Add(t.interval)
 
 	diff := next.Sub(time.Now())
 	if t.timer == nil {
